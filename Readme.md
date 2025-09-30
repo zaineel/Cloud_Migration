@@ -126,5 +126,5 @@ Create `docs/DECISIONS.md` and record major choices with date and rationale. Exa
 
 ## Maintainers & Support
 
-- Maintainers: Zaineel Mithani ([@zaineel](https://github.com/zaineel)), Aroudra ([@aroudrasthakur](https://github.com/aroudrasthakur))
+- Maintainers: Zaineel Mithani ([@zaineel](https://github.com/zaineel)), Aroudra ([@aroudrasthakur](https://github.com/aroudrasthakur)), Soumik Sen ([@soumiksen](https://github.com/soumiksen))
 - Directors / Contacts: Tobi and Prajit Viswanadha — DM on Discord
