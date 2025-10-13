@@ -307,5 +307,8 @@ ruff check .
 ---
 
 ## Maintainers & Support
-- Maintainers: {{PRIMARY_OWNER}} ([@{{GITHUB_HANDLE}}](https://github.com/{{GITHUB_HANDLE}})), Aroudra (https://github.com/aroudrasthakur)
+
+=======
+
+- Maintainers: Zaineel Mithani ([@zaineel](https://github.com/zaineel)), Aroudra ([@aroudrasthakur](https://github.com/aroudrasthakur)), Tanzid Noor Azad ([@TanzidAzad](https://github.com/TanzidAzad)), Soumik Sen ([@soumiksen](https://github.com/soumiksen)), Hani Markos ([@hm-22](https://github.com/hm-22)), Rachelle Centeno Azurdia ([@rachelle9026](https://github.com/rachelle9026))
 - Directors / Contacts: Tobi and Prajit Viswanadha — DM on Discord
