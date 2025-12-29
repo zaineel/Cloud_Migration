@@ -293,7 +293,7 @@ export default function HomePage() {
   }, []);
 
   const socketRef = useRef<Socket | null>(null);
-  const peersRef = useRef<{ [id: string]: { destroy?: () => void } }>({});
+  const peersRef = useRef<{ [id: string]: InstanceType<typeof Peer> }>({});
   const localStreamRef = useRef<MediaStream | null>(null);
   const audioRefs = useRef<{ [id: string]: HTMLAudioElement }>({});
   const userIdRef = useRef<string>("");
@@ -387,7 +387,7 @@ export default function HomePage() {
     remoteSocketId: string,
     initiator: boolean,
     stream: MediaStream
-  ): Peer.Instance {
+  ): InstanceType<typeof Peer> {
     const peer = new Peer({
       initiator,
       stream,
@@ -415,7 +415,7 @@ export default function HomePage() {
     }, 30000);
 
     // Handle signaling data
-    peer.on("signal", (signal) => {
+    peer.on("signal", (signal: unknown) => {
       if (socketRef.current) {
         socketRef.current.emit("signal", {
           roomId: activeCall!.channelId,
@@ -426,7 +426,7 @@ export default function HomePage() {
     });
 
     // Handle incoming stream
-    peer.on("stream", (remoteStream) => {
+    peer.on("stream", (remoteStream: MediaStream) => {
       attachRemoteStream(remoteSocketId, remoteStream);
     });
 
@@ -437,7 +437,7 @@ export default function HomePage() {
     });
 
     // Handle errors
-    peer.on("error", (err) => {
+    peer.on("error", (err: Error) => {
       clearTimeout(connectionTimeout);
       console.error("Peer error:", remoteSocketId, err);
       setCallError(`Connection error: ${err.message}`);
