@@ -6,6 +6,8 @@ import {
   signUp,
   resetPassword,
   confirmResetPassword,
+  signOut,
+  getCurrentUser,
 } from "@aws-amplify/auth";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -140,6 +142,15 @@ export default function LoginPage() {
     }
 
     try {
+      // Check if there's already a signed-in user
+      try {
+        await getCurrentUser();
+        // User is already signed in, sign them out first
+        await signOut();
+      } catch {
+        // No user signed in, proceed with login
+      }
+
       await signIn({
         username: loginForm.email,
         password: loginForm.password,
