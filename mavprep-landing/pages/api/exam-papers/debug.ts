@@ -8,7 +8,7 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
-  const diagnostics = {
+  const diagnostics: any = {
     envVars: {
       MAVPREP_AWS_REGION: process.env.MAVPREP_AWS_REGION ? "✓ Set" : "✗ Missing",
       MAVPREP_AWS_ACCESS_KEY_ID: process.env.MAVPREP_AWS_ACCESS_KEY_ID ? "✓ Set" : "✗ Missing",
