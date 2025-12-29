@@ -8,6 +8,8 @@ import {
   getCurrentUser,
 } from "@aws-amplify/auth";
 import { io, Socket } from "socket.io-client";
+import Peer from "simple-peer";
+import AuthGuard from "../../components/AuthGuard";
 
 type Channel = {
   id: string;
@@ -380,6 +382,121 @@ export default function HomePage() {
     }
   }
 
+  // Helper function to create a peer connection
+  function createPeer(
+    remoteSocketId: string,
+    initiator: boolean,
+    stream: MediaStream
+  ): Peer.Instance {
+    const peer = new Peer({
+      initiator,
+      stream,
+      trickle: true,
+      config: {
+        iceServers: [
+          { urls: "stun:stun.l.google.com:19302" },
+          { urls: "stun:global.stun.twilio.com:3478" },
+          {
+            urls: "turn:openrelay.metered.ca:80",
+            username: "openrelayproject",
+            credential: "openrelayproject",
+          },
+        ],
+      },
+    });
+
+    // Connection timeout
+    const connectionTimeout = setTimeout(() => {
+      if (!peer.destroyed) {
+        console.error("Peer connection timeout:", remoteSocketId);
+        setCallError("Connection timeout. Please try again.");
+        peer.destroy();
+      }
+    }, 30000);
+
+    // Handle signaling data
+    peer.on("signal", (signal) => {
+      if (socketRef.current) {
+        socketRef.current.emit("signal", {
+          roomId: activeCall!.channelId,
+          targetSocketId: remoteSocketId,
+          signal,
+        });
+      }
+    });
+
+    // Handle incoming stream
+    peer.on("stream", (remoteStream) => {
+      attachRemoteStream(remoteSocketId, remoteStream);
+    });
+
+    // Handle connection established
+    peer.on("connect", () => {
+      clearTimeout(connectionTimeout);
+      console.log("Peer connected:", remoteSocketId);
+    });
+
+    // Handle errors
+    peer.on("error", (err) => {
+      clearTimeout(connectionTimeout);
+      console.error("Peer error:", remoteSocketId, err);
+      setCallError(`Connection error: ${err.message}`);
+    });
+
+    // Handle peer close
+    peer.on("close", () => {
+      clearTimeout(connectionTimeout);
+      console.log("Peer closed:", remoteSocketId);
+      cleanupPeer(remoteSocketId);
+    });
+
+    return peer;
+  }
+
+  // Helper function to attach remote stream
+  function attachRemoteStream(socketId: string, stream: MediaStream) {
+    // Check if stream has audio
+    const audioTracks = stream.getAudioTracks();
+    if (audioTracks.length > 0) {
+      // Create audio element if it doesn't exist
+      if (!audioRefs.current[socketId]) {
+        const audio = new Audio();
+        audio.autoplay = true;
+        audio.srcObject = stream;
+        audio.muted = isDeafened;
+        audioRefs.current[socketId] = audio;
+
+        // Play audio
+        audio.play().catch((err) => {
+          console.error("Error playing audio:", err);
+        });
+      }
+    }
+
+    // Check if stream has video
+    const videoTracks = stream.getVideoTracks();
+    if (videoTracks.length > 0) {
+      // Update participant to show they have video
+      setParticipants((prev) =>
+        prev.map((p) =>
+          p.id === socketId ? { ...p, hasVideo: true } : p
+        )
+      );
+    }
+  }
+
+  // Helper function to cleanup peer connection
+  function cleanupPeer(socketId: string) {
+    // Destroy peer connection
+    if (peersRef.current[socketId]) {
+      peersRef.current[socketId].destroy?.();
+      delete peersRef.current[socketId];
+    }
+
+    // Remove audio element
+    removeRemoteAudio(socketId);
+  }
+
   // Setup WebRTC when joining a call
   useEffect(() => {
     if (!inCall || !activeCall) return;
@@ -397,16 +514,23 @@ export default function HomePage() {
         }
         localStreamRef.current = stream;
         // Connect to signaling server
-        // First, initialize the Socket.IO server by hitting the API endpoint
-        fetch("/api/webrtc-signaling")
+        const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || "";
+        const isProduction = socketUrl && socketUrl !== "http://localhost:3000";
+
+        // For local development, initialize the API endpoint first
+        const initPromise = isProduction
+          ? Promise.resolve()
+          : fetch("/api/webrtc-signaling");
+
+        initPromise
           .then(() => {
-            const socket = io({
-              path: "/api/webrtc-signaling",
-          transports: ["websocket", "polling"],
-          reconnection: true,
+            const socket = io(socketUrl, {
+              path: isProduction ? "/socket.io" : "/api/webrtc-signaling",
+              transports: ["websocket", "polling"],
+              reconnection: true,
               reconnectionAttempts: 5,
               reconnectionDelay: 1000,
-        });
+            });
 
         if (!socket) {
               setCallError(
@@ -427,52 +551,118 @@ export default function HomePage() {
 
             socket.on(
               "room-joined",
-              ({ memberCount }: { memberCount: number }) => {
-          setConnectionStatus(`Connected (${memberCount} in room)`);
-                playJoinSound(); // Play join sound
-                // Create mock participants for demo
-                const mockParticipants = Array(memberCount - 1)
-                  .fill(null)
-                  .map((_, i) => ({
-                    id: `user_${i}`,
-                    name: `User ${i + 1}`,
-                    isMuted: false,
-                    isSpeaking: false,
-                  }));
-                setParticipants(mockParticipants);
+              ({
+                memberCount,
+                existingUsers,
+              }: {
+                memberCount: number;
+                existingUsers: Array<{ socketId: string; userId: string }>;
+              }) => {
+                setConnectionStatus(`Connected (${memberCount} in room)`);
+                playJoinSound();
+
+                // Create peers for all existing users (we are the initiator)
+                if (localStreamRef.current && existingUsers) {
+                  existingUsers.forEach(({ socketId, userId }) => {
+                    // Create participant entry
+                    setParticipants((prev) => [
+                      ...prev,
+                      {
+                        id: socketId,
+                        name: userId,
+                        isMuted: false,
+                        isSpeaking: false,
+                      },
+                    ]);
+
+                    // Create peer connection as initiator
+                    const peer = createPeer(
+                      socketId,
+                      true,
+                      localStreamRef.current!
+                    );
+                    peersRef.current[socketId] = peer;
+                  });
+                }
               }
             );
 
             socket.on(
               "user-joined",
-              ({ userId: remoteId }: { userId: string }) => {
+              ({
+                userId,
+                socketId: remoteSocketId,
+              }: {
+                userId: string;
+                socketId: string;
+              }) => {
+                console.log("User joined:", userId, remoteSocketId);
+
+                // Add to participants
                 setParticipants((prev) => [
                   ...prev,
                   {
-                    id: remoteId,
-                    name: `User ${prev.length + 1}`,
+                    id: remoteSocketId,
+                    name: userId,
                     isMuted: false,
                     isSpeaking: false,
                   },
                 ]);
+
+                // Create peer connection as receiver (NOT initiator)
+                if (localStreamRef.current) {
+                  const peer = createPeer(
+                    remoteSocketId,
+                    false,
+                    localStreamRef.current
+                  );
+                  peersRef.current[remoteSocketId] = peer;
+                }
               }
             );
 
-            socket.on("signal", () => {
-              // Handle WebRTC signaling (data received but not yet implemented)
-            });
+            socket.on(
+              "signal",
+              ({
+                signal,
+                senderSocketId,
+              }: {
+                signal: unknown;
+                senderSocketId: string;
+              }) => {
+                console.log("Received signal from:", senderSocketId);
+
+                // Forward signal to the corresponding peer
+                const peer = peersRef.current[senderSocketId];
+                if (peer) {
+                  peer.signal(signal);
+                } else {
+                  console.warn(
+                    "Received signal for unknown peer:",
+                    senderSocketId
+                  );
+                }
+              }
+            );
 
             socket.on(
               "user-left",
-              ({ userId: remoteId }: { userId: string }) => {
+              ({
+                userId,
+                socketId: remoteSocketId,
+              }: {
+                userId: string;
+                socketId: string;
+              }) => {
+                console.log("User left:", userId, remoteSocketId);
+
+                // Remove from participants
                 setParticipants((prev) =>
-                  prev.filter((p) => p.id !== remoteId)
+                  prev.filter((p) => p.id !== remoteSocketId)
                 );
-          if (peersRef.current[remoteId]) {
-            peersRef.current[remoteId].destroy?.();
-            delete peersRef.current[remoteId];
-          }
-          removeRemoteAudio(remoteId);
+
+                // Cleanup peer connection
+                cleanupPeer(remoteSocketId);
               }
             );
 
@@ -508,19 +698,25 @@ export default function HomePage() {
         socketRef.current.disconnect();
         socketRef.current = null;
       }
-      Object.values(peersRef.current).forEach((peer) => {
-        peer.destroy?.();
+
+      // Clean up all peers
+      Object.keys(peersRef.current).forEach((socketId) => {
+        cleanupPeer(socketId);
       });
       peersRef.current = {};
+
+      // Stop local stream
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach((track) => track.stop());
         localStreamRef.current = null;
       }
-      Object.values(audioRefs.current).forEach((audio) => {
-        audio.pause();
-        audio.srcObject = null;
-      });
-      audioRefs.current = {};
+
+      // Stop local video stream
+      if (localVideoStreamRef.current) {
+        localVideoStreamRef.current.getTracks().forEach((track) => track.stop());
+        localVideoStreamRef.current = null;
+      }
+
       setParticipants([]);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -576,13 +772,20 @@ export default function HomePage() {
     if (isVideoOn) {
       // Turn off video
       if (localVideoStreamRef.current) {
-        localVideoStreamRef.current.getTracks().forEach((track) => {
-          if (track.kind === "video") {
-            track.stop();
+        const videoTrack = localVideoStreamRef.current.getVideoTracks()[0];
+
+        // Remove video track from all peer connections
+        Object.values(peersRef.current).forEach((peer) => {
+          if (videoTrack && localVideoStreamRef.current) {
+            peer.removeTrack(videoTrack, localVideoStreamRef.current);
           }
         });
+
+        // Stop video track
+        videoTrack?.stop();
         localVideoStreamRef.current = null;
       }
+
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = null;
       }
@@ -592,13 +795,33 @@ export default function HomePage() {
       try {
         const videoStream = await navigator.mediaDevices.getUserMedia({
           video: { width: 640, height: 480, facingMode: "user" },
-          audio: false, // Audio is handled separately
+          audio: false,
         });
+
         localVideoStreamRef.current = videoStream;
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = videoStream;
-        }
+        const videoTrack = videoStream.getVideoTracks()[0];
+
+        // Set state first to render the video element
         setIsVideoOn(true);
+
+        // Add video track to local preview
+        // Wait for next tick to ensure video element is rendered
+        setTimeout(() => {
+          if (localVideoRef.current) {
+            localVideoRef.current.srcObject = videoStream;
+            // Explicitly play the video
+            localVideoRef.current.play().catch((err) => {
+              console.error("Error playing video:", err);
+            });
+          }
+        }, 0);
+
+        // Add video track to all peer connections
+        Object.values(peersRef.current).forEach((peer) => {
+          if (videoTrack && localStreamRef.current) {
+            peer.addTrack(videoTrack, localStreamRef.current);
+          }
+        });
       } catch (error: unknown) {
         console.error("Error accessing camera:", error);
 
@@ -1171,7 +1394,8 @@ export default function HomePage() {
   }, [messages, activeTextChannel]);
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <AuthGuard>
+      <div className="min-h-screen bg-black text-white">
       <div className="flex h-screen overflow-hidden">
         {/* Left Sidebar - Discord-like channels */}
         <aside className="w-72 border-r border-gray-800 h-screen flex flex-col bg-gray-900/30">
@@ -2798,6 +3022,7 @@ export default function HomePage() {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </AuthGuard>
   );
 }

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { updatePassword, updateUserAttributes, getCurrentUser, fetchUserAttributes } from "@aws-amplify/auth";
 import Link from "next/link";
+import AuthGuard from "../../components/AuthGuard";
 
 export default function SettingsPage() {
   // Current user info
@@ -277,7 +278,8 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <AuthGuard>
+      <div className="min-h-screen bg-black text-white">
       {/* Header */}
       <header className="border-b border-gray-800 bg-gray-900/50">
         <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
@@ -569,6 +571,7 @@ export default function SettingsPage() {
           </button>
         </div>
       </main>
-    </div>
+      </div>
+    </AuthGuard>
   );
 }
