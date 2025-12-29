@@ -13,6 +13,9 @@ export const metadata: Metadata = {
   title: 'MavPrep - Your Success Preparation Platform',
   description:
     'MavPrep helps you prepare for success with powerful tools and resources.',
+  icons: {
+    icon: '/icon.svg',
+  },
 };
 
 export default function RootLayout({
