@@ -355,3 +355,183 @@ export async function getUserProfile(userId: string): Promise<UserProfile | null
   return result.Item as UserProfile | null;
 }
 
+// ==================== EXAM PAPER OPERATIONS ====================
+
+export interface ExamPaper {
+  paperID: string;
+  courseCode: string;
+  courseName?: string;
+  semester: string; // "Fall" | "Spring" | "Summer"
+  year: number;
+  professor: string;
+  examType: "midterm" | "final" | "quiz";
+  fileName: string;
+  s3Key: string;
+  fileSize: number;
+  uploadedBy: string;
+  uploadedByName: string;
+  uploadDate: string;
+  downloadCount?: number;
+}
+
+export async function createExamPaper(paper: ExamPaper): Promise<void> {
+  const params = {
+    TableName: TABLE_NAME,
+    Item: {
+      PK: `EXAMPAPER#${paper.paperID}`,
+      SK: "METADATA",
+      GSI1PK: `COURSE#${paper.courseCode}`,
+      GSI1SK: `EXAM#${paper.year}#${paper.semester}#${paper.examType}`,
+      ...paper,
+      uploadDate: paper.uploadDate || new Date().toISOString(),
+      downloadCount: 0,
+    },
+  };
+
+  await docClient.send(new PutCommand(params));
+}
+
+export async function getExamPaper(paperID: string): Promise<ExamPaper | null> {
+  const params = {
+    TableName: TABLE_NAME,
+    Key: {
+      PK: `EXAMPAPER#${paperID}`,
+      SK: "METADATA",
+    },
+  };
+
+  const result = await docClient.send(new GetCommand(params));
+  return result.Item as ExamPaper | null;
+}
+
+export async function listExamPapers(filters?: {
+  courseCode?: string;
+  semester?: string;
+  year?: number;
+  examType?: string;
+  professor?: string;
+}): Promise<ExamPaper[]> {
+  // If courseCode is provided, use GSI1 for efficient querying
+  if (filters?.courseCode) {
+    try {
+      const params: {
+        TableName: string;
+        IndexName: string;
+        KeyConditionExpression: string;
+        ExpressionAttributeValues: Record<string, string | number>;
+        ExpressionAttributeNames?: Record<string, string>;
+        FilterExpression?: string;
+      } = {
+        TableName: TABLE_NAME,
+        IndexName: "GSI1",
+        KeyConditionExpression: "GSI1PK = :pk",
+        ExpressionAttributeValues: {
+          ":pk": `COURSE#${filters.courseCode}`,
+        },
+      };
+
+      // Add filter expressions for other criteria
+      const filterExpressions: string[] = [];
+      if (filters.semester) {
+        params.ExpressionAttributeValues[":semester"] = filters.semester;
+        filterExpressions.push("semester = :semester");
+      }
+      if (filters.year) {
+        params.ExpressionAttributeValues[":year"] = filters.year;
+        filterExpressions.push("#year = :year");
+        params.ExpressionAttributeNames = { "#year": "year" };
+      }
+      if (filters.examType) {
+        params.ExpressionAttributeValues[":examType"] = filters.examType;
+        filterExpressions.push("examType = :examType");
+      }
+      if (filters.professor) {
+        params.ExpressionAttributeValues[":professor"] = filters.professor;
+        filterExpressions.push("contains(professor, :professor)");
+      }
+
+      if (filterExpressions.length > 0) {
+        params.FilterExpression = filterExpressions.join(" AND ");
+      }
+
+      const result = await docClient.send(new QueryCommand(params));
+      return (result.Items as ExamPaper[]) || [];
+    } catch (error: unknown) {
+      console.warn("GSI1 query failed, falling back to Scan:", error);
+      // Fall through to Scan if GSI query fails
+    }
+  }
+
+  // Fallback to Scan if no courseCode or GSI query failed (less efficient)
+  const scanParams: {
+    TableName: string;
+    FilterExpression: string;
+    ExpressionAttributeValues: Record<string, string | number>;
+    ExpressionAttributeNames?: Record<string, string>;
+  } = {
+    TableName: TABLE_NAME,
+    FilterExpression: "SK = :metadata AND begins_with(PK, :prefix)",
+    ExpressionAttributeValues: {
+      ":metadata": "METADATA",
+      ":prefix": "EXAMPAPER#",
+    },
+  };
+
+  // Add additional filters
+  const additionalFilters: string[] = [];
+  if (filters?.semester) {
+    scanParams.ExpressionAttributeValues[":semester"] = filters.semester;
+    additionalFilters.push("semester = :semester");
+  }
+  if (filters?.year) {
+    scanParams.ExpressionAttributeValues[":year"] = filters.year;
+    additionalFilters.push("#year = :year");
+    scanParams.ExpressionAttributeNames = { "#year": "year" };
+  }
+  if (filters?.examType) {
+    scanParams.ExpressionAttributeValues[":examType"] = filters.examType;
+    additionalFilters.push("examType = :examType");
+  }
+  if (filters?.professor) {
+    scanParams.ExpressionAttributeValues[":professor"] = filters.professor;
+    additionalFilters.push("contains(professor, :professor)");
+  }
+
+  if (additionalFilters.length > 0) {
+    scanParams.FilterExpression += " AND " + additionalFilters.join(" AND ");
+  }
+
+  const result = await docClient.send(new ScanCommand(scanParams));
+  return (result.Items as ExamPaper[]) || [];
+}
+
+export async function deleteExamPaper(paperID: string): Promise<void> {
+  const params = {
+    TableName: TABLE_NAME,
+    Key: {
+      PK: `EXAMPAPER#${paperID}`,
+      SK: "METADATA",
+    },
+  };
+
+  await docClient.send(new DeleteCommand(params));
+}
+
+export async function incrementDownloadCount(paperID: string): Promise<void> {
+  const params = {
+    TableName: TABLE_NAME,
+    Key: {
+      PK: `EXAMPAPER#${paperID}`,
+      SK: "METADATA",
+    },
+    UpdateExpression:
+      "SET downloadCount = if_not_exists(downloadCount, :zero) + :inc",
+    ExpressionAttributeValues: {
+      ":zero": 0,
+      ":inc": 1,
+    },
+  };
+
+  await docClient.send(new UpdateCommand(params));
+}
+
