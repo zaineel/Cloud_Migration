@@ -805,16 +805,22 @@ export default function HomePage() {
         setIsVideoOn(true);
 
         // Add video track to local preview
-        // Wait for next tick to ensure video element is rendered
-        setTimeout(() => {
-          if (localVideoRef.current) {
-            localVideoRef.current.srcObject = videoStream;
-            // Explicitly play the video
-            localVideoRef.current.play().catch((err) => {
-              console.error("Error playing video:", err);
-            });
-          }
-        }, 0);
+        // Use requestAnimationFrame to wait for the next browser paint
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if (localVideoRef.current && localVideoStreamRef.current) {
+              console.log("Setting video srcObject:", localVideoStreamRef.current);
+              localVideoRef.current.srcObject = localVideoStreamRef.current;
+              localVideoRef.current.muted = true; // Ensure it's muted
+              // The autoPlay attribute should handle playing, but we'll be explicit
+              localVideoRef.current.play().catch((err) => {
+                console.error("Error playing video:", err);
+              });
+            } else {
+              console.error("Video ref not available:", localVideoRef.current);
+            }
+          });
+        });
 
         // Add video track to all peer connections
         Object.values(peersRef.current).forEach((peer) => {
