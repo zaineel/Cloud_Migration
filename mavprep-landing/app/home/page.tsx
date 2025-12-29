@@ -1798,6 +1798,36 @@ export default function HomePage() {
                   ))}
               </ul>
             </div>
+
+            {/* Resources Section */}
+            <div className="mt-6 pt-6 border-t border-gray-800">
+              <h3 className="text-xs text-gray-400 uppercase tracking-wide mb-2">
+                Resources
+              </h3>
+              <ul className="space-y-1">
+                <li>
+                  <button
+                    onClick={() => router.push("/exams")}
+                    className="flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors w-full hover:bg-gray-800/50"
+                  >
+                    <svg
+                      className="w-4 h-4 text-gray-400"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                      />
+                    </svg>
+                    <span className="text-sm text-gray-200">Past Exams</span>
+                  </button>
+                </li>
+              </ul>
+            </div>
           </nav>
           </div>
 
